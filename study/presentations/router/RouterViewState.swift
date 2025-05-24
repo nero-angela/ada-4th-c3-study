@@ -10,6 +10,7 @@ enum SubPage {
   case todo
   case bucket
   case prototypeSample
+  case frequencyAnalysis
 }
 
 struct RouterViewState {

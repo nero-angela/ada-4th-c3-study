@@ -28,6 +28,7 @@ struct RouterView: View {
           case .todo: TodoView()
           case .bucket: BucketView()
           case .prototypeSample: PrototypeSampleView()
+          case .frequencyAnalysis: FrequencyAnalysisView()
           }
         }
         .toolbarBackground(.hidden, for: .navigationBar)

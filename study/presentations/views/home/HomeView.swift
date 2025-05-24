@@ -32,6 +32,9 @@ struct HomeView: View {
             Tile(title: "Sample", subtitle: "Nickname") {
               router.push(.prototypeSample)
             }
+            Tile(title: "Frequency Analysis", subtitle: "Nell") {
+              router.push(.frequencyAnalysis)
+            }
           }
         }
       }
