@@ -2,12 +2,14 @@
 
 struct FrequencyAnalysisViewState {
   let amplitudes: [Float]
-  let dominantNote: String
+  let note: String
+  let freq: Double
   
-  func copy(amplitudes: [Float]? = nil, dominantNote: String? = nil) -> FrequencyAnalysisViewState {
+  func copy(amplitudes: [Float]? = nil, note: String? = nil, freq: Double? = nil) -> FrequencyAnalysisViewState {
     return FrequencyAnalysisViewState(
       amplitudes: amplitudes ?? self.amplitudes,
-      dominantNote: dominantNote ?? self.dominantNote
+      note: note ?? self.note,
+      freq: freq ?? self.freq
     )
   }
 }

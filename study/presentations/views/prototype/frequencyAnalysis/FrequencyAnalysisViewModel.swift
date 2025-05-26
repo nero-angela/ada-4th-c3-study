@@ -1,62 +1,21 @@
 //  Copyright © 2025 ADA 4th Challenge3 Team1. All rights reserved.
 
-
 import SwiftUI
-import AudioKit
 import AVFoundation
 
-struct Complex {
-  var real: Double
-  var imag: Double
+final class FrequencyAnalysisViewModel: BaseViewModel<FrequencyAnalysisViewState> {
+  private let recorder = Recorder()
   
-  init(_ real: Double, _ imag: Double) {
-    self.real = real
-    self.imag = imag
-  }
+  // FFT 입력 길이
+  // 오디오에서 몇 초 구간을 분석할지 결정
+  // 크기가 클수록 느리지만 정확도↑
+  // 주파수 해상도(Frequency Resolution, 5.86Hz) = Sample Rate(48000Hz) / windowSize(8192)
+  // FFT 결과 배열의 각 인덱스는 5.86Hz 간격의 주파수 성분을 나타냄
+  // 2의 거듭 제곱이어야 Cooley-Tukey FFT 알고리즘의 분할 정복이 재귀적으로 딱 나누어 떨어져 성능에 좋음
+  private let windowSize = 8192 // 2^13
   
-  static func + (lhs: Complex, rhs: Complex) -> Complex {
-    Complex(lhs.real + rhs.real, lhs.imag + rhs.imag)
-  }
-  
-  static func - (lhs: Complex, rhs: Complex) -> Complex {
-    Complex(lhs.real - rhs.real, lhs.imag - rhs.imag)
-  }
-  
-  static func * (lhs: Complex, rhs: Complex) -> Complex {
-    Complex(lhs.real * rhs.real - lhs.imag * rhs.imag,
-            lhs.real * rhs.imag + lhs.imag * rhs.real)
-  }
-}
-
-func fft(_ input: [Complex]) -> [Complex] {
-  let n = input.count
-  if n == 1 {
-    return input
-  }
-  if n & (n - 1) != 0 {
-    fatalError("Input size must be a power of 2")
-  }
-  let even = fft((0..<n/2).map { input[2*$0] })
-  let odd = fft((0..<n/2).map { input[2*$0 + 1] })
-  
-  var output = Array(repeating: Complex(0,0), count: n)
-  for k in 0..<n/2 {
-    let twiddle = Complex(cos(-2 * Double.pi * Double(k) / Double(n)),
-                          sin(-2 * Double.pi * Double(k) / Double(n)))
-    output[k] = even[k] + twiddle * odd[k]
-    output[k + n/2] = even[k] - twiddle * odd[k]
-  }
-  return output
-}
-
-class AudioManager: ObservableObject {
-  private var audioEngine = AVAudioEngine()
-  private var inputNode: AVAudioInputNode?
-  let windowSize = 8192
-  
-  let noteFrequencies: [(name: String, freq: Double)] = [
-    ("E2", 82.41), ("F2", 87.31), ("F#2/Gb2", 92.50), ("G2", 98.00), ("G#2/Ab2", 103.83),
-    ("A2", 110.00), ("A#2/Bb2", 116.54), ("B2", 123.47), ("C3", 130.81), ("C#3/Db3", 138.59),
+  private let noteFrequencies: [(name: String, freq: Double)] = [
+   ("E2", 82.41), ("F2", 87.31), ("F#2/Gb2", 92.50), ("G2", 98.00), ("G#2/Ab2", 103.83), ("A2", 110.00), ("A#2/Bb2", 116.54), ("B2", 123.47), ("C3", 130.81), ("C#3/Db3", 138.59),
     ("D3", 146.83), ("D#3/Eb3", 155.56), ("E3", 164.81), ("F3", 174.61), ("F#3/Gb3", 185.00),
     ("G3", 196.00), ("G#3/Ab3", 207.65), ("A3", 220.00), ("A#3/Bb3", 233.08), ("B3", 246.94),
     ("C4", 261.63), ("C#4/Db4", 277.18), ("D4", 293.66), ("D#4/Eb4", 311.13), ("E4", 329.63),
@@ -66,7 +25,7 @@ class AudioManager: ObservableObject {
     ("G#5/Ab5", 830.61), ("A5", 880.00), ("A#5/Bb5", 932.33), ("B5", 987.77), ("C6", 1046.50)
   ]
   
-  func getClosestNoteName(for frequency: Double) -> String {
+  private func getClosestNoteName(for frequency: Double) -> String {
     var minDiff = Double.infinity
     var closestNote = ""
     for note in noteFrequencies {
@@ -79,77 +38,105 @@ class AudioManager: ObservableObject {
     return closestNote
   }
   
-  func startRecording() {
-    inputNode = audioEngine.inputNode
-    let inputFormat = inputNode!.outputFormat(forBus: 0)
-    print("마이크 샘플링 주파수: \(inputFormat.sampleRate) Hz")
-    
-    inputNode?.installTap(onBus: 0, bufferSize: AVAudioFrameCount(windowSize), format: inputFormat) { buffer, time in
-      // Audio data in buffer
-      guard let channelData = buffer.floatChannelData?[0] else { return }
-      let frameLength = Int(buffer.frameLength)
-      
-      // RMS 계산
-      var sumSquares: Double = 0
-      for i in 0..<frameLength {
-        let sample = Double(channelData[i])
-        sumSquares += sample * sample
-      }
-      let rms = sqrt(sumSquares / Double(frameLength))
-      
-      // 임계값 체크
-      let threshold = 0.003
-      if rms < threshold {
-        // 신호가 약해서 분석 안함
-        return
-      }
-      
-      var samples = [Complex]()
-      for i in 0..<self.windowSize {
-        let window = 0.5 * (1 - cos(2 * Double.pi * Double(i) / Double(self.windowSize - 1)))
-        samples.append(Complex(Double(channelData[i]) * window, 0))
-      }
-      
-      // Ensure samples count is a power of two
-      let N = self.windowSize
-      if samples.count >= N {
-        let fftInput = Array(samples[0..<N])
-        let fftResult = fft(fftInput)
-        let magnitudes = fftResult.map { sqrt($0.real * $0.real + $0.imag * $0.imag) }
-        
-        let halfN = N / 2
-        let magnitudesHalf = magnitudes[0..<halfN]
-        if let maxMagnitude = magnitudesHalf.max(),
-           let maxIndex = magnitudesHalf.firstIndex(of: maxMagnitude) {
-          let frequency = Double(maxIndex) * inputFormat.sampleRate / Double(N)
-          let noteName = self.getClosestNoteName(for: frequency)
-          print("Max Magnitude: \(maxMagnitude), Max Index: \(maxIndex), Frequency: \(frequency) Hz, Note: \(noteName)")
-        }
-      }
-    }
-    
-    try? audioEngine.start()
-  }
-  
-  func stopRecording() {
-    inputNode?.removeTap(onBus: 0)
-    audioEngine.stop()
-  }
-}
-
-
-final class FrequencyAnalysisViewModel: BaseViewModel<FrequencyAnalysisViewState> {
-  let audioManager = AudioManager()
-  
   init() {
     super.init(state: .init(
       amplitudes: Array(repeating: 0.0, count: 512),
-      dominantNote: ""
+      note: "",
+      freq: 0
     ))
-    audioManager.startRecording()
+    recorder.start(windowSize, recordHandler)
   }
   
   override func dispose() {
-    audioManager.stopRecording()
+    recorder.stop()
+  }
+  
+  private func recordHandler(buffer: AVAudioPCMBuffer, time: AVAudioTime) {
+    // Audio data in buffer : 음압
+    guard let channelData = buffer.floatChannelData?[0] else { return }
+    let frameLength = Int(buffer.frameLength)
+    
+    // RMS : 음수 값들을 모두 양수로 바꾸어 볼륨 판별
+    var sumSquares: Double = 0
+    for i in 0..<frameLength {
+      let sample = Double(channelData[i])
+      sumSquares += sample * sample
+    }
+    let rms = sqrt(sumSquares / Double(frameLength))
+    
+    // 볼륨이 작은 경우 걸러내기
+    let threshold = 0.01
+    if rms < threshold {
+      return
+    }
+    
+    var samples = [Complex]()
+    for i in 0..<self.windowSize {
+      // Hamming Window
+      // - FFT는 입력 신호가 주기적이고 무한하다고 가정하지만 실제 오디오 신호는 짧은 구간만 자른 것(프레임)이라 양 끝이 갑자기 끊키면서 스펙트럼 누설(leakage)이라는 왜곡을 유발함.
+      // - 신호의 양 끝을 부드럽게 0에 가깝게 만드는 창(window) 함수로   FFT에 부드러운 경계 조건을 만들어줌.
+      let window = 0.5 * (1 - cos(2 * Double.pi * Double(i) / Double(self.windowSize - 1)))
+      
+      // 복소수로 표현 (허수부 0으로 구현)
+      // FFT(푸리에 변환)는 원래 복소수 정현파의 합으로 신호를 분해하는 알고리즘이라
+      // 입력 신호가 실수이더라도 계산상 복소수 공간에서 주파수 분석을 해야함.
+      samples.append(Complex(Double(channelData[i]) * window, 0))
+    }
+    
+    // Ensure samples count is a power of two
+    let N = self.windowSize
+    if samples.count >= N {
+      let fftInput = Array(samples[0..<N])
+      
+      // FFT 결과
+      // - windowSize 크기의 배열
+      // - Frequency Resolution(5.86Hz) = Sample Rage(48000) / windowSize(8192)
+      // - 0번째 index : 0 ~ 5.86Hz 사이 주파수 성분의 크기(magnitude)와 위상(phase)을 표현
+      let fftResult = FestFourierTransform().run(fftInput)
+
+      // 크기(Magnitude, 신호가 그 주파수에서 얼마나 강한지 나타냄) = 루트(실수부^2 + 허수부^2)
+      // 위상(Phase, 그 주파수 성분의 시간적 위치나 진행 상태) = arctan(허수부 / 실수부)
+      let magnitudes = fftResult.map { sqrt($0.real * $0.real + $0.imag * $0.imag) }
+      
+      // Nyquist frequency (24000Hz) = sampling rate(48000Hz) / 2
+      // - 샘플링 주파수의 절반 이상인 주파수 성분은 올바르게 표현할 수 없습니다.
+      // - 신호가 왜곡되어 낮은 주파수로 착각되는 현상(aliasing)이 발생하기 때문.
+      // - FFT의 결과는 복소수 배열인데, 이 배열은 대칭 구조를 가지기 때문.
+      // - 0~N/2까지는 양의 주파수 성분, 나머지는 음의 주파수 성분을 복소수 켤레로 나타냄.
+      // - 실제로는 인덱스 0 ~ N/2까지만 유효한 주파수 정보를 가지고 있고, 나머지는 대칭(복소공간의 복사본)이므로 버림.
+      let halfN = N / 2
+      let magnitudesHalf = Array(magnitudes[0..<halfN])
+      
+      // HPS (Harmonic Product Spectrum)
+      // - 소리에는 기본 주파수와 배수인 배음(harmonics)가 함께 존재하는데, 여기에서 기본 주파수 피치를 검출하는 기법(E2를 연주했지만 E3가 잡히는 FFT 문제 해결)
+      // - 원래는 다운샘플링을 해서 배음이 겹쳐지면서 기본음이 강화되는 방식인데, 여기에서 곱 연산으로 기본 주파수를 강화하는 방식으로 찾음.
+      // - 다른 인덱스는 곱했을 때 더 작아져서 상대적으로 기본 주파수 후보 위치가 더 명확해짐.
+      // - E3를 연주해도 E2가 미세하게 포함될 가능성은 있지만, 보통 기본 주파수보다 낮은 주파수는 약하고 명확하지 않음.
+      var hps = magnitudesHalf
+
+      // 4개 배음까지 고려
+      let harmonics = 4
+      for h in 2...harmonics {
+        for i in 0..<(halfN / h) {
+          // E2 = E2 * E3 * E4 * E5
+          // E3 = E3 * E4 * E5 * E6
+          hps[i] *= magnitudes[i * h]
+        }
+      }
+      
+      // E2가 82.41Hz이므로 70Hz 이상에서만 피크 찾기
+      let minIndex = Int(70.0 * Double(N) / recorder.inputFormat!.sampleRate)
+      let searchRange = minIndex..<(halfN / harmonics)
+      
+      if let maxIndex = searchRange.max(by: { hps[$0] < hps[$1] }) {
+        let frequency = Double(maxIndex) * recorder.inputFormat!.sampleRate / Double(N)
+        let noteName = self.getClosestNoteName(for: frequency)
+        emit(state.copy(
+          note: noteName,
+          freq: frequency
+        ))
+        print("Frequency: \(frequency) Hz, Note: \(noteName)")
+      }
+    }
   }
 }

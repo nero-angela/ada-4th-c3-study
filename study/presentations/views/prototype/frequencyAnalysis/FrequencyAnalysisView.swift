@@ -9,7 +9,10 @@ struct FrequencyAnalysisView: View {
     ) { viewModel, state in
       VStack {
         Toolbar(title: "Frequency Analysis")
-        
+        Spacer()
+        Text(state.note)
+          .font(.title)
+        Spacer()
       }
     }
   }
