@@ -4,7 +4,7 @@ struct FrequencyAnalysisViewState {
   let amplitudes: [Float]
   let note: String
   let freq: Double
-  
+
   func copy(amplitudes: [Float]? = nil, note: String? = nil, freq: Double? = nil) -> FrequencyAnalysisViewState {
     return FrequencyAnalysisViewState(
       amplitudes: amplitudes ?? self.amplitudes,

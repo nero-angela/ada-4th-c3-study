@@ -6,7 +6,7 @@ struct FrequencyAnalysisView: View {
   var body: some View {
     BaseView(
       create: { FrequencyAnalysisViewModel() }
-    ) { viewModel, state in
+    ) { _, state in
       VStack {
         Toolbar(title: "Frequency Analysis")
         Spacer()
